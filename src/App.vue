@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { bilingualTopicContent } from './bilingualTopicContent'
 import { buildChapterPracticeMap, buildChapterQuestionBankMap } from './chapterPractice'
+import CodePlayground from './components/CodePlayground.vue'
 import DemoRenderer from './components/DemoRenderer.vue'
 import PracticeGame from './components/PracticeGame.vue'
 import QuestionBank from './components/QuestionBank.vue'
@@ -15,6 +16,7 @@ const selectedTopicId = ref(flatTopics[0].id)
 const currentView = ref('topic')
 const selectedChapterId = ref(flatTopics[0].chapterId)
 const openChapterIds = reviewTree.map((chapter) => chapter.id)
+const searchKeyword = ref('')
 
 const selectedTopic = computed(
   () => flatTopics.find((topic) => topic.id === selectedTopicId.value) ?? flatTopics[0],
@@ -33,6 +35,8 @@ const activeMenuIndex = computed(() =>
     ? `practice:${selectedChapterId.value}`
     : currentView.value === 'bank'
       ? `bank:${selectedChapterId.value}`
+      : currentView.value === 'playground'
+        ? 'playground'
       : selectedTopicId.value,
 )
 
@@ -53,6 +57,48 @@ const selectedKnowledgeItems = computed(() =>
       height: '140px',
     },
   })),
+)
+
+const normalizeText = (value) => String(value || '').toLowerCase()
+
+const topicMatchesKeyword = (topic, keyword) => {
+  const normalizedKeyword = normalizeText(keyword).trim()
+  if (!normalizedKeyword) return true
+
+  const searchFields = [
+    topic.title,
+    topic.intro,
+    ...(topic.knowledge ?? []),
+    ...(topic.mistakes ?? []),
+    ...(topic.demos ?? []).flatMap((demo) => [demo.title, demo.description, demo.initialLine, demo.initialCode, demo.initialRule, demo.initialHtml]),
+    ...(bilingualTopicContent[topic.id]?.knowledgeOriginal ?? []),
+    bilingualTopicContent[topic.id]?.introOriginal,
+  ]
+
+  return searchFields.some((field) => normalizeText(field).includes(normalizedKeyword))
+}
+
+const filteredReviewTree = computed(() => {
+  const keyword = searchKeyword.value.trim()
+  if (!keyword) return reviewTree
+
+  return reviewTree
+    .map((chapter) => {
+      const matchedChildren = chapter.children.filter((topic) => {
+        const chapterHit = normalizeText(chapter.title).includes(normalizeText(keyword))
+        return chapterHit || topicMatchesKeyword(topic, keyword)
+      })
+
+      return {
+        ...chapter,
+        children: matchedChildren,
+      }
+    })
+    .filter((chapter) => chapter.children.length > 0)
+})
+
+const searchMatchCount = computed(() =>
+  filteredReviewTree.value.reduce((count, chapter) => count + chapter.children.length, 0),
 )
 
 const selectTopic = async (id) => {
@@ -77,6 +123,12 @@ const openQuestionBank = async (chapterId) => {
   document.querySelector('.doc-main')?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+const openCodePlayground = async () => {
+  currentView.value = 'playground'
+  await nextTick()
+  document.querySelector('.doc-main')?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 const scrollToDemo = async (index) => {
   await nextTick()
   document.getElementById(`demo-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -97,13 +149,28 @@ const scrollToDemo = async (index) => {
         </a>
       </div>
 
+      <button type="button" class="doc-sidebar__playground-entry" @click="openCodePlayground">
+        新增功能：代码练习板
+      </button>
+
+      <div class="doc-sidebar__search">
+        <el-input
+          v-model="searchKeyword"
+          clearable
+          placeholder="搜索标签/关键字，如 div、meta、iframe、v-model"
+        />
+        <p v-if="searchKeyword.trim()" class="doc-sidebar__search-tip">
+          共找到 {{ searchMatchCount }} 个匹配小节
+        </p>
+      </div>
+
       <el-menu
         :default-openeds="openChapterIds"
         :default-active="activeMenuIndex"
         class="doc-menu"
       >
         <el-sub-menu
-          v-for="chapter in reviewTree"
+          v-for="chapter in filteredReviewTree"
           :key="chapter.id"
           :index="chapter.id"
         >
@@ -134,6 +201,11 @@ const scrollToDemo = async (index) => {
           </el-menu-item>
         </el-sub-menu>
       </el-menu>
+
+      <div v-if="searchKeyword.trim() && !searchMatchCount" class="doc-sidebar__empty">
+        <strong>没有找到匹配内容</strong>
+        <p>可以试试搜索 `div`、`img`、`meta`、`table`、`iframe`、`v-model`。</p>
+      </div>
     </aside>
 
     <main class="doc-main">
@@ -148,6 +220,11 @@ const scrollToDemo = async (index) => {
           v-else-if="currentView === 'bank'"
           :key="`bank-${selectedQuestionBank?.chapterId}`"
           :question-bank="selectedQuestionBank"
+        />
+
+        <CodePlayground
+          v-else-if="currentView === 'playground'"
+          key="code-playground"
         />
 
         <div v-else :key="`topic-${selectedTopic.id}`" class="doc-topic-wrapper">
