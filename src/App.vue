@@ -1,14 +1,16 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import { bilingualTopicContent } from './bilingualTopicContent'
-import { buildChapterPracticeMap } from './chapterPractice'
+import { buildChapterPracticeMap, buildChapterQuestionBankMap } from './chapterPractice'
 import DemoRenderer from './components/DemoRenderer.vue'
 import PracticeGame from './components/PracticeGame.vue'
+import QuestionBank from './components/QuestionBank.vue'
 import { knowledgeExampleMap } from './knowledgeExamples'
 import { flattenTopics, reviewTree } from './reviewTreeData'
 
 const flatTopics = flattenTopics(reviewTree)
 const chapterPracticeMap = buildChapterPracticeMap(reviewTree)
+const chapterQuestionBankMap = buildChapterQuestionBankMap(reviewTree)
 const selectedTopicId = ref(flatTopics[0].id)
 const currentView = ref('topic')
 const selectedChapterId = ref(flatTopics[0].chapterId)
@@ -18,16 +20,20 @@ const selectedTopic = computed(
   () => flatTopics.find((topic) => topic.id === selectedTopicId.value) ?? flatTopics[0],
 )
 
-const selectedChapter = computed(
-  () => reviewTree.find((chapter) => chapter.id === selectedChapterId.value) ?? reviewTree[0],
-)
-
 const selectedPractice = computed(
   () => chapterPracticeMap[selectedChapterId.value] ?? chapterPracticeMap[reviewTree[0].id],
 )
 
+const selectedQuestionBank = computed(
+  () => chapterQuestionBankMap[selectedChapterId.value] ?? chapterQuestionBankMap[reviewTree[0].id],
+)
+
 const activeMenuIndex = computed(() =>
-  currentView.value === 'practice' ? `practice:${selectedChapterId.value}` : selectedTopicId.value,
+  currentView.value === 'practice'
+    ? `practice:${selectedChapterId.value}`
+    : currentView.value === 'bank'
+      ? `bank:${selectedChapterId.value}`
+      : selectedTopicId.value,
 )
 
 const selectedTopicBilingual = computed(
@@ -59,6 +65,13 @@ const selectTopic = async (id) => {
 
 const openPractice = async (chapterId) => {
   currentView.value = 'practice'
+  selectedChapterId.value = chapterId
+  await nextTick()
+  document.querySelector('.doc-main')?.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const openQuestionBank = async (chapterId) => {
+  currentView.value = 'bank'
   selectedChapterId.value = chapterId
   await nextTick()
   document.querySelector('.doc-main')?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -112,6 +125,13 @@ const scrollToDemo = async (index) => {
           >
             练一练
           </el-menu-item>
+          <el-menu-item
+            :index="`bank:${chapter.id}`"
+            class="doc-menu__practice"
+            @click="openQuestionBank(chapter.id)"
+          >
+            章节题库
+          </el-menu-item>
         </el-sub-menu>
       </el-menu>
     </aside>
@@ -122,6 +142,12 @@ const scrollToDemo = async (index) => {
           v-if="currentView === 'practice'"
           :key="`practice-${selectedPractice?.chapterId}`"
           :practice="selectedPractice"
+        />
+
+        <QuestionBank
+          v-else-if="currentView === 'bank'"
+          :key="`bank-${selectedQuestionBank?.chapterId}`"
+          :question-bank="selectedQuestionBank"
         />
 
         <div v-else :key="`topic-${selectedTopic.id}`" class="doc-topic-wrapper">

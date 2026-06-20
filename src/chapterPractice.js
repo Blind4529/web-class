@@ -1,4 +1,5 @@
 import { knowledgeExampleMap } from './knowledgeExamples'
+import { chapterQuestionBankExtras } from './chapterQuestionBankExtras'
 
 const MODE_TOKEN_MAP = {
   directives: 'v-model',
@@ -191,7 +192,7 @@ const createQuestion = (chapter, topic, knowledgeText, knowledgeIndex, example, 
   }
 }
 
-export const buildChapterPracticeMap = (reviewTree) => {
+const buildBaseChapterQuestionMap = (reviewTree) => {
   const map = {}
 
   reviewTree.forEach((chapter) => {
@@ -227,6 +228,25 @@ export const buildChapterPracticeMap = (reviewTree) => {
   })
 
   return map
+}
+
+export const buildChapterPracticeMap = (reviewTree) => buildBaseChapterQuestionMap(reviewTree)
+
+export const buildChapterQuestionBankMap = (reviewTree) => {
+  const baseMap = buildBaseChapterQuestionMap(reviewTree)
+
+  Object.keys(baseMap).forEach((chapterId) => {
+    const extraQuestions = chapterQuestionBankExtras[chapterId] ?? []
+    const finalQuestions = extraQuestions.length ? extraQuestions : baseMap[chapterId].questions
+
+    baseMap[chapterId] = {
+      ...baseMap[chapterId],
+      totalQuestions: finalQuestions.length,
+      questions: finalQuestions,
+    }
+  })
+
+  return baseMap
 }
 
 export const validateHardAnswer = (userInput, question) => {
