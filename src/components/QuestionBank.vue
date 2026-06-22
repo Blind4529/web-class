@@ -5,11 +5,11 @@
         <p class="bank-hero__eyebrow">章节题库</p>
         <h1>{{ questionBank.chapterTitle }}</h1>
         <p class="bank-hero__desc">
-          按章节整理本章全部题目，不再以小游戏闯关方式展示。你可以直接切换难度、逐题练习、查看答案与参考代码。
+          按章节整理本章全部题目，不再以小游戏闯关方式展示。你可以切换选择、填空、代码补全和简答题模式，逐题练习并对照参考答案复习。
         </p>
       </div>
       <div class="bank-hero__meta">
-        <span>{{ questionBank.totalQuestions }} 题</span>
+        <span>{{ activeQuestionCount }} 题</span>
         <span>{{ difficultyLabel }}</span>
       </div>
     </section>
@@ -40,15 +40,15 @@
           </div>
           <div class="bank-stat-list">
             <div class="bank-stat">
-              <span>已作答</span>
-              <strong>{{ submittedCount }}/{{ questionBank.totalQuestions }}</strong>
+              <span>{{ primaryStatLabel }}</span>
+              <strong>{{ submittedCount }}/{{ activeQuestionCount }}</strong>
             </div>
             <div class="bank-stat">
-              <span>答对</span>
-              <strong>{{ correctCount }}/{{ questionBank.totalQuestions }}</strong>
+              <span>{{ secondaryStatLabel }}</span>
+              <strong>{{ correctCount }}/{{ activeQuestionCount }}</strong>
             </div>
             <div class="bank-stat">
-              <span>正确率</span>
+              <span>{{ percentStatLabel }}</span>
               <strong>{{ accuracyPercent }}%</strong>
             </div>
           </div>
@@ -79,7 +79,7 @@
           </div>
           <div class="bank-jump-list">
             <button
-              v-for="(question, index) in questionBank.questions"
+              v-for="(question, index) in activeQuestions"
               :key="question.id"
               type="button"
               class="bank-jump"
@@ -94,7 +94,7 @@
 
       <section class="bank-main">
         <article
-          v-for="(question, index) in questionBank.questions"
+          v-for="(question, index) in activeQuestions"
           :id="`bank-question-${question.id}`"
           :key="question.id"
           class="bank-question"
@@ -103,9 +103,8 @@
             <div>
               <div class="bank-question__index-row">
                 <span class="bank-question__index">{{ question.originalNumber || index + 1 }}</span>
-                <span class="bank-chip">{{ question.shortTopicTitle }}</span>
                 <span v-if="question.sourceLabel" class="bank-chip bank-chip--reference">{{ question.sourceLabel }}</span>
-                <span class="bank-chip bank-chip--soft">知识点 {{ question.knowledgeIndex + 1 }}</span>
+                <span v-if="Number.isInteger(question.knowledgeIndex)" class="bank-chip bank-chip--soft">知识点 {{ question.knowledgeIndex + 1 }}</span>
               </div>
               <h3>{{ question.prompt || getPrompt(question, index) }}</h3>
             </div>
@@ -120,8 +119,6 @@
               {{ currentDifficultySubmissions[question.id]?.correct ? '正确' : '错误' }}
             </div>
           </div>
-
-          <p class="bank-question__knowledge">{{ question.knowledgeText }}</p>
 
           <template v-if="difficulty === 'easy'">
             <div class="bank-option-list">
@@ -147,6 +144,20 @@
                 @keyup.enter="submitMedium(question)"
               >
               <button type="button" class="bank-primary" @click="submitMedium(question)">提交</button>
+            </div>
+          </template>
+
+          <template v-else-if="difficulty === 'short'">
+            <textarea
+              v-model="shortInputs[question.id]"
+              class="bank-textarea"
+              placeholder="请用自己的话作答，尽量写出作用、用法和一个简单示例"
+            ></textarea>
+            <div class="bank-actions bank-actions--inline">
+              <button type="button" class="bank-primary" @click="submitShort(question)">提交简答</button>
+              <button type="button" class="bank-ghost" @click="toggleReveal(question.id)">
+                {{ isRevealed(question.id) ? '收起参考答案' : '查看参考答案' }}
+              </button>
             </div>
           </template>
 
@@ -184,8 +195,21 @@
             <div class="bank-answer__header">
               <h4>答案与参考</h4>
             </div>
-            <p><strong>标准答案：</strong>{{ question.answer }}</p>
-            <p><strong>示例标题：</strong>{{ question.exampleTitle }}</p>
+            <p><strong>知识点标签：</strong><span class="bank-chip">{{ question.shortTopicTitle }}</span></p>
+            <p class="bank-question__knowledge"><strong>知识点说明：</strong>{{ question.knowledgeText }}</p>
+            <div v-if="difficulty === 'short' && question.originalPrompt" class="bank-source-note">
+              <strong>对应原题：</strong>{{ question.originalPrompt }}
+            </div>
+            <template v-if="difficulty === 'short'">
+              <div class="bank-code">
+                <span class="bank-code__label">参考作答</span>
+                <pre>{{ question.sampleAnswer || question.answer }}</pre>
+              </div>
+            </template>
+            <template v-else>
+              <p><strong>标准答案：</strong>{{ question.answer }}</p>
+              <p><strong>示例标题：</strong>{{ question.exampleTitle }}</p>
+            </template>
             <div class="bank-code">
               <span class="bank-code__label">参考代码</span>
               <pre>{{ question.referenceCode || '该题暂无代码示例' }}</pre>
@@ -212,6 +236,7 @@ const difficultyList = [
   { value: 'easy', label: '简单题库' },
   { value: 'medium', label: '中等题库' },
   { value: 'hard', label: '困难题库' },
+  { value: 'short', label: '简答题库' },
 ]
 
 const difficulty = ref('easy')
@@ -221,13 +246,21 @@ const submissions = reactive({
   easy: {},
   medium: {},
   hard: {},
+  short: {},
 })
 
 const mediumInputs = reactive({})
 const hardInputs = reactive({})
+const shortInputs = reactive({})
 const revealedAnswers = reactive({})
 
 const currentDifficultySubmissions = computed(() => submissions[difficulty.value])
+const activeQuestions = computed(() =>
+  difficulty.value === 'short'
+    ? props.questionBank.shortAnswerQuestions ?? []
+    : props.questionBank.questions ?? [],
+)
+const activeQuestionCount = computed(() => activeQuestions.value.length)
 
 const difficultyLabel = computed(
   () => difficultyList.find((item) => item.value === difficulty.value)?.label ?? '简单题库',
@@ -236,8 +269,13 @@ const difficultyLabel = computed(
 const modeDescription = computed(() => {
   if (difficulty.value === 'easy') return '简单模式按选择题展示，适合快速扫知识点。'
   if (difficulty.value === 'medium') return '中等模式按填空题展示，适合记忆关键词和语法。'
+  if (difficulty.value === 'short') return '简答模式按章节自动整理 20 道简答题，适合系统复述知识点。'
   return '困难模式按代码补全展示，适合结合示例进行应用训练。'
 })
+
+const primaryStatLabel = computed(() => (difficulty.value === 'short' ? '已提交' : '已作答'))
+const secondaryStatLabel = computed(() => (difficulty.value === 'short' ? '已完成' : '答对'))
+const percentStatLabel = computed(() => (difficulty.value === 'short' ? '完成率' : '正确率'))
 
 const submittedCount = computed(
   () => Object.keys(currentDifficultySubmissions.value).length,
@@ -248,8 +286,8 @@ const correctCount = computed(
 )
 
 const accuracyPercent = computed(() => {
-  if (props.questionBank.totalQuestions === 0) return 0
-  return Math.round((correctCount.value / props.questionBank.totalQuestions) * 100)
+  if (activeQuestionCount.value === 0) return 0
+  return Math.round((correctCount.value / activeQuestionCount.value) * 100)
 })
 
 const getPrompt = (question, index) => {
@@ -258,6 +296,9 @@ const getPrompt = (question, index) => {
   }
   if (difficulty.value === 'medium') {
     return `${index + 1}. 请填写实现该功能最关键的核心词。`
+  }
+  if (difficulty.value === 'short') {
+    return `${index + 1}. 请围绕本题知识点做简答说明。`
   }
   return `${index + 1}. 请根据知识点补全下面这段程序。`
 }
@@ -301,6 +342,18 @@ const submitHard = (question) => {
   )
 }
 
+const submitShort = (question) => {
+  const value = String(shortInputs[question.id] || '').trim()
+  const completed = Boolean(value)
+  setFeedback(
+    'short',
+    question.id,
+    completed,
+    completed ? '已记录你的简答，请结合参考作答检查是否覆盖了核心要点。' : '请先输入你的简答内容再提交。',
+    value,
+  )
+}
+
 const easyOptionClass = (question, option) => {
   const feedback = submissions.easy[question.id]
   if (!feedback) return ''
@@ -331,6 +384,12 @@ const resetCurrentDifficulty = () => {
   if (difficulty.value === 'hard') {
     Object.keys(hardInputs).forEach((key) => {
       delete hardInputs[key]
+    })
+  }
+
+  if (difficulty.value === 'short') {
+    Object.keys(shortInputs).forEach((key) => {
+      delete shortInputs[key]
     })
   }
 }
@@ -630,6 +689,15 @@ watch(
   margin: 14px 0 16px;
   color: #4b5563;
   line-height: 1.8;
+}
+
+.bank-source-note {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8fbff;
+  color: #4b5563;
+  line-height: 1.7;
 }
 
 .bank-option-list {

@@ -44,9 +44,34 @@ const GLOBAL_DISTRACTORS = [
   'position',
 ]
 
+const SHORT_ANSWER_TARGET_COUNT = 20
+
+const SHORT_ANSWER_PROMPT_BUILDERS = [
+  (question) =>
+    `请简述 ${question.answer} 的主要作用，并结合“${question.shortTopicTitle}”说明它为什么适合本知识点。`,
+  (question) =>
+    `围绕“${question.shortTopicTitle}”这一小节，说明 ${question.answer} 的用途、常见写法和一个典型使用场景。`,
+  (question) =>
+    `请根据知识点“${question.knowledgeText}”，用自己的话解释 ${question.answer} 在前端中的作用。`,
+  (question) =>
+    `这道题原本考查“${question.prompt || question.knowledgeText}”。请改用简答题方式说明为什么答案是 ${question.answer}。`,
+  (question) =>
+    `请写出与 ${question.answer} 相关的核心语法或标签，并简要说明使用时机。`,
+]
+
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const normalize = (text) => text.replace(/\s+/g, ' ').trim().toLowerCase()
+
+const uniqueBy = (items, getKey) => {
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = getKey(item)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 
 const trimTopicTitle = (title) =>
   title
@@ -192,6 +217,46 @@ const createQuestion = (chapter, topic, knowledgeText, knowledgeIndex, example, 
   }
 }
 
+const buildShortAnswerReference = (question) => {
+  const parts = [
+    `核心答案：${question.answer}`,
+    `知识点说明：${question.knowledgeText}`,
+  ]
+
+  if (question.prompt) {
+    parts.push(`原题考点：${question.prompt}`)
+  }
+
+  if (question.referenceCode) {
+    parts.push(`示例代码：${sanitizeCodeForPractice(question.referenceCode)}`)
+  }
+
+  return parts.join('\n')
+}
+
+const buildShortAnswerQuestions = (questions) => {
+  const dedupedQuestions = uniqueBy(
+    questions.filter((question) => question?.answer && question?.knowledgeText),
+    (question) => normalize(`${question.prompt || question.knowledgeText}|${question.answer}`),
+  )
+
+  if (dedupedQuestions.length === 0) return []
+
+  return Array.from({ length: SHORT_ANSWER_TARGET_COUNT }, (_, index) => {
+    const sourceQuestion = dedupedQuestions[index % dedupedQuestions.length]
+    const promptBuilder = SHORT_ANSWER_PROMPT_BUILDERS[index % SHORT_ANSWER_PROMPT_BUILDERS.length]
+
+    return {
+      ...sourceQuestion,
+      id: `${sourceQuestion.id}-short-${index + 1}`,
+      originalQuestionId: sourceQuestion.id,
+      originalPrompt: sourceQuestion.prompt || '',
+      prompt: promptBuilder(sourceQuestion),
+      sampleAnswer: buildShortAnswerReference(sourceQuestion),
+    }
+  })
+}
+
 const buildBaseChapterQuestionMap = (reviewTree) => {
   const map = {}
 
@@ -224,6 +289,7 @@ const buildBaseChapterQuestionMap = (reviewTree) => {
       chapterShortTitle: trimTopicTitle(chapter.title),
       totalQuestions: questions.length,
       questions,
+      shortAnswerQuestions: buildShortAnswerQuestions(questions),
     }
   })
 
@@ -243,6 +309,7 @@ export const buildChapterQuestionBankMap = (reviewTree) => {
       ...baseMap[chapterId],
       totalQuestions: finalQuestions.length,
       questions: finalQuestions,
+      shortAnswerQuestions: buildShortAnswerQuestions(finalQuestions),
     }
   })
 
